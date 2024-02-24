@@ -45,19 +45,21 @@ func (w *Pool) Run(
 	f func(ctx context.Context, task Task) error,
 	ignoreErr bool,
 ) error {
-	errGroup, ctxTasks := errgroup.WithContext(ctx)
+	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
 	done := make(chan struct{})
 
 	for {
 		select {
+		// All tasks ok
 		case <-done:
 			return nil
 
-		case <-ctxTasks.Done():
-			return ctxTasks.Err()
+		// Some task failed (i.e. context canceled by errGroup)
+		case <-tasksCtx.Done():
+			return tasksGroup.Wait()
 
-		case task, ok := <-tasks:
-			if !ok {
+		case task, open := <-tasks:
+			if !open {
 				go func() {
 					done <- struct{}{}
 				}()
@@ -65,19 +67,18 @@ func (w *Pool) Run(
 				continue
 			}
 
-			go func(task Task, ignoreErr bool) {
-				errGroup.Go(func() error {
-					err := f(ctxTasks, task)
+			func(task Task, ignoreErr bool) {
+				tasksGroup.Go(func() error {
+					err := f(tasksCtx, task)
 					if err != nil {
 						if ignoreErr {
 							return nil
 						}
 
-						return errors.Wrapf(err, "task %s", task.Id)
+						return errors.Wrapf(err, "task_%s", task.Id)
 					}
 
 					w.increment()
-
 					return nil
 				})
 			}(task, ignoreErr)

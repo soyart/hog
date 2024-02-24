@@ -19,7 +19,7 @@ const (
 
 func main() {
 	// email with SomeInt == badInt will err
-	numEmails, badInt := 7, 3
+	numEmails, badInt := 10, 3
 	tasks := make(chan worker.Task)
 	emailTasks := emailTasks(numEmails)
 
@@ -29,12 +29,12 @@ func main() {
 	// Task producer goroutine
 	go func() {
 		for i := range emailTasks {
-			fmt.Println("[producer] producing", i)
+			log.Println("[producer] producing", i)
 			tasks <- emailTasks[i]
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 
-		defer fmt.Println("[producer] closed chan")
+		defer log.Println("[producer] closed chan")
 		defer close(tasks)
 	}()
 
@@ -42,14 +42,15 @@ func main() {
 
 	err := pool.Run(ctx, tasks, processFunc, exitOnErr)
 	if err != nil {
-		fmt.Println("===== ERROR =====")
-		fmt.Println("exited with error", err.Error())
-		fmt.Println("tasks completed", pool.Processed())
+		log.Println("===== ERROR =====")
+		log.Println("exited with error", err.Error())
+		log.Println("tasks completed", pool.Processed())
+
 		os.Exit(2)
 	}
 
-	fmt.Println("===== DONE =====")
-	fmt.Println("tasks completed", pool.Processed())
+	log.Println("===== DONE =====")
+	log.Println("tasks completed", pool.Processed())
 }
 
 type mail struct {
@@ -64,7 +65,9 @@ func sendMail(m mail) error {
 		panic("json marshal error")
 	}
 
-	fmt.Printf("[send-mail] %s\n", b)
+	time.Sleep(500 * time.Millisecond) // fake IO
+	log.Printf("[send-mail] %s\n", b)
+
 	return nil
 }
 
