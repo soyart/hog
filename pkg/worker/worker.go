@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -13,20 +14,13 @@ type Task struct {
 }
 
 type Pool struct {
-	f         func(ctx context.Context, task Task) error
-	tasks     <-chan Task
 	m         *sync.Mutex
 	processed int
 }
 
-func NewPool(
-	tasks <-chan Task,
-	f func(ctx context.Context, task Task) error,
-) *Pool {
+func NewPool() *Pool {
 	return &Pool{
-		f:         f,
-		tasks:     tasks,
-		m:         &sync.Mutex{},
+		m:         new(sync.Mutex),
 		processed: 0,
 	}
 }
@@ -45,27 +39,32 @@ func (w *Pool) increment() {
 	w.processed++
 }
 
-func (w *Pool) Run(ctx context.Context) error {
+func (w *Pool) Run(
+	ctx context.Context,
+	tasks <-chan Task,
+	f func(ctx context.Context, task Task) error,
+	ignoreErr bool,
+) error {
+	fmt.Println("run ignoreErr", ignoreErr)
 	errGroup, errGroupCtx := errgroup.WithContext(ctx)
 
-	for task := range w.tasks {
-		func(task Task) {
+	for task := range tasks {
+		go func(task Task, ignoreErr bool) {
 			errGroup.Go(func() error {
-				return w.work(errGroupCtx, task)
+				err := f(errGroupCtx, task)
+				if err != nil {
+					if ignoreErr {
+						return nil
+					}
+
+					return err
+				}
+
+				w.increment()
+				return nil
 			})
-		}(task)
+		}(task, ignoreErr)
 	}
 
 	return errGroup.Wait()
-}
-
-func (w *Pool) work(ctx context.Context, task Task) error {
-	err := w.f(ctx, task)
-	if err != nil {
-		return err
-	}
-
-	w.increment()
-
-	return nil
 }
