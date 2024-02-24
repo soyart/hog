@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -72,7 +73,7 @@ func (w *Pool) Run(
 							return nil
 						}
 
-						return err
+						return errors.Wrapf(err, "task %s", task.Id)
 					}
 
 					w.increment()

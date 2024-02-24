@@ -19,7 +19,7 @@ const (
 
 func main() {
 	// email with SomeInt == badInt will err
-	numEmails, badInt := 5, 3
+	numEmails, badInt := 7, 3
 	tasks := make(chan worker.Task)
 	emailTasks := emailTasks(numEmails)
 
@@ -40,7 +40,7 @@ func main() {
 
 	pool := worker.NewPool()
 
-	err := pool.Run(ctx, tasks, processFunc, ignoreErr)
+	err := pool.Run(ctx, tasks, processFunc, exitOnErr)
 	if err != nil {
 		fmt.Println("===== ERROR =====")
 		fmt.Println("exited with error", err.Error())
@@ -69,31 +69,7 @@ func sendMail(m mail) error {
 }
 
 func processFunc(ctx context.Context, badSomeInt int) func(context.Context, worker.Task) error {
-	if badSomeInt < 0 {
-		return func(ctx context.Context, task worker.Task) error {
-			err := ctx.Err()
-			if err != nil {
-				log.Println("got context error", err.Error())
-				return nil
-			}
-
-			email, ok := task.Payload.(mail)
-			if !ok {
-				panic("not email: " + reflect.TypeOf(email).String())
-			}
-
-			log.Println("processing", email.SomeInt)
-			return sendMail(email)
-		}
-	}
-
-	return func(ctx context.Context, task worker.Task) error {
-		err := ctx.Err()
-		if err != nil {
-			log.Println("got context error", err.Error())
-			return nil
-		}
-
+	return func(_ context.Context, task worker.Task) error {
 		email, ok := task.Payload.(mail)
 		if !ok {
 			panic("not email: " + reflect.TypeOf(email).String())
@@ -115,7 +91,7 @@ func emailTasks(n int) []worker.Task {
 
 	for i := range tasks {
 		tasks[i] = worker.Task{
-			Id: fmt.Sprintf("task id %d", i),
+			Id: fmt.Sprintf("sendmail_%d", i),
 			Payload: mail{
 				To:      fmt.Sprintf("receiver_%d", i),
 				Msg:     fmt.Sprintf("msg_%d", i),
