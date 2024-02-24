@@ -6,37 +6,49 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"time"
 
 	"example.com/playground-workers/pkg/worker"
 )
 
+const (
+	ignoreErr = true
+	exitOnErr = !ignoreErr
+)
+
 func main() {
-	numEmails, badSomeInt := 9, 3
+	// email with SomeInt == badInt will err
+	numEmails, badInt := 5, 3
 	tasks := make(chan worker.Task)
 	emailTasks := emailTasks(numEmails)
 
 	ctx := context.Background()
-	processFunc := processFunc(ctx, badSomeInt)
+	processFunc := processFunc(ctx, badInt)
 
+	// Task producer goroutine
 	go func() {
 		for i := range emailTasks {
+			fmt.Println("[producer] producing", i)
 			tasks <- emailTasks[i]
-			time.Sleep(time.Second)
+			time.Sleep(500 * time.Millisecond)
 		}
 
-		close(tasks)
+		defer fmt.Println("[producer] closed chan")
+		defer close(tasks)
 	}()
 
 	pool := worker.NewPool()
 
-	err := pool.Run(ctx, tasks, processFunc, false)
+	err := pool.Run(ctx, tasks, processFunc, ignoreErr)
 	if err != nil {
+		fmt.Println("===== ERROR =====")
 		fmt.Println("exited with error", err.Error())
 		fmt.Println("tasks completed", pool.Processed())
 		os.Exit(2)
 	}
 
+	fmt.Println("===== DONE =====")
 	fmt.Println("tasks completed", pool.Processed())
 }
 
@@ -52,7 +64,7 @@ func sendMail(m mail) error {
 		panic("json marshal error")
 	}
 
-	fmt.Printf("[send-mail]: %s\n", b)
+	fmt.Printf("[send-mail] %s\n", b)
 	return nil
 }
 
@@ -67,7 +79,7 @@ func processFunc(ctx context.Context, badSomeInt int) func(context.Context, work
 
 			email, ok := task.Payload.(mail)
 			if !ok {
-				panic("not email")
+				panic("not email: " + reflect.TypeOf(email).String())
 			}
 
 			log.Println("processing", email.SomeInt)
@@ -84,7 +96,7 @@ func processFunc(ctx context.Context, badSomeInt int) func(context.Context, work
 
 		email, ok := task.Payload.(mail)
 		if !ok {
-			panic("not email")
+			panic("not email: " + reflect.TypeOf(email).String())
 		}
 
 		log.Println("processing", email.SomeInt)

@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -45,26 +44,42 @@ func (w *Pool) Run(
 	f func(ctx context.Context, task Task) error,
 	ignoreErr bool,
 ) error {
-	fmt.Println("run ignoreErr", ignoreErr)
-	errGroup, errGroupCtx := errgroup.WithContext(ctx)
+	errGroup, ctxTasks := errgroup.WithContext(ctx)
+	done := make(chan struct{})
 
-	for task := range tasks {
-		go func(task Task, ignoreErr bool) {
-			errGroup.Go(func() error {
-				err := f(errGroupCtx, task)
-				if err != nil {
-					if ignoreErr {
-						return nil
+	for {
+		select {
+		case <-done:
+			return nil
+
+		case <-ctxTasks.Done():
+			return ctxTasks.Err()
+
+		case task, ok := <-tasks:
+			if !ok {
+				go func() {
+					done <- struct{}{}
+				}()
+
+				continue
+			}
+
+			go func(task Task, ignoreErr bool) {
+				errGroup.Go(func() error {
+					err := f(ctxTasks, task)
+					if err != nil {
+						if ignoreErr {
+							return nil
+						}
+
+						return err
 					}
 
-					return err
-				}
+					w.increment()
 
-				w.increment()
-				return nil
-			})
-		}(task, ignoreErr)
+					return nil
+				})
+			}(task, ignoreErr)
+		}
 	}
-
-	return errGroup.Wait()
 }
