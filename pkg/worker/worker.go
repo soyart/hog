@@ -50,11 +50,11 @@ func (p *Pool) Run(
 		select {
 		// All tasks ok
 		case <-doneSignal:
-			return errors.Wrap(tasksGroup.Wait(), p.id)
+			return tasksGroup.Wait()
 
 		// Some task failed (i.e. context canceled by errGroup)
 		case <-tasksCtx.Done():
-			return errors.Wrap(tasksGroup.Wait(), p.id)
+			return tasksGroup.Wait()
 
 		case task, open := <-tasks:
 			if !open {
@@ -85,8 +85,6 @@ func (p *Pool) Run(
 // RunWithOutputs consumes each task from tasks,
 // maps it to a result using processFunc,
 // and send the result back to outputs.
-//
-// It also closes outputs once it's done with all tasks.
 func (p *Pool) RunWithOutputs(
 	ctx context.Context,
 	tasks <-chan Task,
@@ -101,15 +99,11 @@ func (p *Pool) RunWithOutputs(
 		select {
 		// All tasks ok
 		case <-doneSignal:
-			err := tasksGroup.Wait()
-			close(outputs)
-			return errors.Wrap(err, p.id)
+			return tasksGroup.Wait()
 
 		// Some task failed (i.e. context canceled by errGroup)
 		case <-tasksCtx.Done():
-			err := tasksGroup.Wait()
-			close(outputs)
-			return errors.Wrap(err, p.id)
+			return tasksGroup.Wait()
 
 		case task, open := <-tasks:
 			if !open {

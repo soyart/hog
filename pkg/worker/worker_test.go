@@ -38,6 +38,7 @@ func TestRunWithOutputNoErr(t *testing.T) {
 			t.Errorf("unexpected error from RunWithOutputs: %v", err)
 		}
 
+		close(outputs)
 		t.Log("RunWithOutputs done")
 	}()
 
