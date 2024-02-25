@@ -21,16 +21,16 @@ func main() {
 	// email with SomeInt == badInt will err
 	numEmails, badInt := 10, 3
 	tasks := make(chan worker.Task)
-	emailTasks := emailTasks(numEmails)
+	mails := emailTasks(numEmails)
 
 	ctx := context.Background()
 	processFunc := processFunc(ctx, badInt)
 
 	// Task producer goroutine
 	go func() {
-		for i := range emailTasks {
+		for i := range mails {
 			log.Println("[producer] producing", i)
-			tasks <- emailTasks[i]
+			tasks <- mails[i]
 			time.Sleep(200 * time.Millisecond)
 		}
 
