@@ -124,12 +124,11 @@ func (p *Pool) RunWithOutputs(
 					return errors.Wrapf(err, "task_%s", task.Id)
 				}
 
-				go func() {
-					outputs <- result
-					p.incrSent()
-				}()
-
 				p.incrProcessed()
+
+				outputs <- result
+				p.incrSent()
+
 				return nil
 			})
 		}

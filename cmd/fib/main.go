@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"example.com/playground-workers/pkg/worker"
 )
@@ -30,7 +29,7 @@ func main() {
 			log.Println("[producer] producing", i)
 			tasks <- fibs[i]
 
-			time.Sleep(700 * time.Millisecond)
+			// time.Sleep(700 * time.Millisecond)
 		}
 
 		defer log.Println("[producer] closed chan")
@@ -79,7 +78,7 @@ func processFib(ctx context.Context, task worker.Task) (interface{}, error) {
 	}
 
 	// Fake expensive runtime here, since func fib is recursive
-	time.Sleep(100 * time.Millisecond)
+	// time.Sleep(100 * time.Millisecond)
 
 	return fib(n), nil
 }
