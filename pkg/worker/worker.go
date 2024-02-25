@@ -52,7 +52,7 @@ func (w *Pool) Run(
 		select {
 		// All tasks ok
 		case <-done:
-			return nil
+			return tasksGroup.Wait()
 
 		// Some task failed (i.e. context canceled by errGroup)
 		case <-tasksCtx.Done():
