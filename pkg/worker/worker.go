@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
@@ -10,7 +10,7 @@ import (
 
 type (
 	Processor           = func(context.Context, Task) error
-	ProcessorWithOutpus = func(context.Context, Task) (interface{}, error)
+	ProcessorWithOutput = func(context.Context, Task) (interface{}, error)
 )
 
 type Task struct {
@@ -19,34 +19,29 @@ type Task struct {
 }
 
 type Pool struct {
-	m         *sync.Mutex
-	processed int
+	id        string
+	processed int64
 }
 
-func NewPool() *Pool {
-	return &Pool{
-		m:         new(sync.Mutex),
-		processed: 0,
-	}
+func NewPool(id string) *Pool {
+	return &Pool{id: id}
 }
 
-func (w *Pool) Processed() int {
-	w.m.Lock()
-	defer w.m.Unlock()
-
-	return w.processed
+func (p *Pool) Id() string {
+	return p.id
 }
 
-func (w *Pool) increment() {
-	w.m.Lock()
-	defer w.m.Unlock()
+func (p *Pool) Processed() int64 {
+	return p.processed
+}
 
-	w.processed++
+func (p *Pool) increment() {
+	atomic.AddInt64(&p.processed, 1)
 }
 
 // Run consumes values from tasks, calls processFunc on each task,
 // and blocks until all tasks are consumed
-func (w *Pool) Run(
+func (p *Pool) Run(
 	ctx context.Context,
 	tasks <-chan Task,
 	processFunc Processor,
@@ -84,18 +79,21 @@ func (w *Pool) Run(
 					return errors.Wrapf(err, "task_%s", task.Id)
 				}
 
-				w.increment()
+				p.increment()
 				return nil
 			})
 		}
 	}
 }
 
-func (w *Pool) RunWithOutputs(
+// RunWithOutputs consumes each task from tasks,
+// maps it to a result using processFunc,
+// and send the result back to outputs.
+func (p *Pool) RunWithOutputs(
 	ctx context.Context,
 	tasks <-chan Task,
 	outputs chan<- interface{},
-	processFunc ProcessorWithOutpus,
+	processFunc ProcessorWithOutput,
 	ignoreErr bool,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
@@ -134,7 +132,7 @@ func (w *Pool) RunWithOutputs(
 					outputs <- result
 				}()
 
-				w.increment()
+				p.increment()
 				return nil
 			})
 		}

@@ -38,7 +38,7 @@ func main() {
 		defer close(tasks)
 	}()
 
-	pool := worker.NewPool()
+	pool := worker.NewPool("email-servers")
 
 	err := pool.Run(ctx, tasks, processFunc, exitOnErr)
 	if err != nil {
