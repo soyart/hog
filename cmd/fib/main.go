@@ -43,6 +43,7 @@ func main() {
 	go func() {
 		for result := range outputs {
 			log.Println("[consumer] result", result)
+			log.Println("[consumer] received", pool.ResultsSent())
 		}
 	}()
 

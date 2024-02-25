@@ -9,8 +9,8 @@ import (
 )
 
 type (
-	Processor           = func(context.Context, Task) error
-	ProcessorWithOutput = func(context.Context, Task) (interface{}, error)
+	ProcessFn           = func(context.Context, Task) error
+	ProcessFnWithOutput = func(context.Context, Task) (interface{}, error)
 )
 
 type Task struct {
@@ -20,31 +20,27 @@ type Task struct {
 
 type Pool struct {
 	id        string
-	processed int64
+	processed uint64
+	sent      uint64
 }
 
 func NewPool(id string) *Pool {
 	return &Pool{id: id}
 }
 
-func (p *Pool) Id() string {
-	return p.id
-}
+func (p *Pool) Id() string          { return p.id }
+func (p *Pool) Processed() uint64   { return p.processed }
+func (p *Pool) ResultsSent() uint64 { return p.sent }
 
-func (p *Pool) Processed() int64 {
-	return p.processed
-}
-
-func (p *Pool) increment() {
-	atomic.AddInt64(&p.processed, 1)
-}
+func (p *Pool) incrProcessed() { atomic.AddUint64(&p.processed, 1) }
+func (p *Pool) incrSent()      { atomic.AddUint64(&p.sent, 1) }
 
 // Run consumes values from tasks, calls processFunc on each task,
 // and blocks until all tasks are consumed
 func (p *Pool) Run(
 	ctx context.Context,
 	tasks <-chan Task,
-	processFunc Processor,
+	processFn ProcessFn,
 	ignoreErr bool,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
@@ -70,7 +66,7 @@ func (p *Pool) Run(
 			}
 
 			tasksGroup.Go(func() error {
-				err := processFunc(tasksCtx, task)
+				err := processFn(tasksCtx, task)
 				if err != nil {
 					if ignoreErr {
 						return nil
@@ -79,7 +75,7 @@ func (p *Pool) Run(
 					return errors.Wrapf(err, "task_%s", task.Id)
 				}
 
-				p.increment()
+				p.incrProcessed()
 				return nil
 			})
 		}
@@ -93,7 +89,7 @@ func (p *Pool) RunWithOutputs(
 	ctx context.Context,
 	tasks <-chan Task,
 	outputs chan<- interface{},
-	processFunc ProcessorWithOutput,
+	processFn ProcessFnWithOutput,
 	ignoreErr bool,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
@@ -119,7 +115,7 @@ func (p *Pool) RunWithOutputs(
 			}
 
 			tasksGroup.Go(func() error {
-				result, err := processFunc(tasksCtx, task)
+				result, err := processFn(tasksCtx, task)
 				if err != nil {
 					if ignoreErr {
 						return nil
@@ -130,9 +126,10 @@ func (p *Pool) RunWithOutputs(
 
 				go func() {
 					outputs <- result
+					p.incrSent()
 				}()
 
-				p.increment()
+				p.incrProcessed()
 				return nil
 			})
 		}
