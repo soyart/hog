@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"example.com/playground-workers/pkg/worker"
+	"github.com/soyart/hog"
 )
 
 const (
@@ -19,7 +19,7 @@ func main() {
 	n := 10
 	fibs := fibTasks(n)
 
-	tasks := make(chan worker.Task)
+	tasks := make(chan hog.Task)
 	outputs := make(chan interface{})
 	ctx := context.Background()
 
@@ -36,7 +36,7 @@ func main() {
 		defer close(tasks)
 	}()
 
-	pool := worker.NewPool("fib-pool")
+	pool := hog.NewPool("fib-pool")
 
 	// Result consumer goroutine
 	go func() {
@@ -71,7 +71,7 @@ func fib(n int) int {
 	}
 }
 
-func processFib(ctx context.Context, task worker.Task) (interface{}, error) {
+func processFib(ctx context.Context, task hog.Task) (interface{}, error) {
 	n, ok := task.Payload.(int)
 	if !ok {
 		panic(fmt.Sprintf("not int"))
@@ -83,10 +83,10 @@ func processFib(ctx context.Context, task worker.Task) (interface{}, error) {
 	return fib(n), nil
 }
 
-func fibTasks(n int) []worker.Task {
-	tasks := make([]worker.Task, n)
+func fibTasks(n int) []hog.Task {
+	tasks := make([]hog.Task, n)
 	for i := 0; i < n; i++ {
-		tasks[i] = worker.Task{
+		tasks[i] = hog.Task{
 			Id:      fmt.Sprintf("fib_%d", n),
 			Payload: i,
 		}

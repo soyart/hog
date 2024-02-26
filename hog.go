@@ -1,4 +1,4 @@
-package worker
+package hog
 
 import (
 	"context"
@@ -12,32 +12,30 @@ type (
 	CaptureErrgroupFn   = func(context.Context, Task) func() error // Used internally to capture context and task to a closure for errgroup
 )
 
+// Task represents hog unit of task.
 type Task struct {
 	Id      string
 	Payload interface{}
 }
 
-// RunWithOutputs consumes each task from tasks,
-// maps it to a result using processFunc,
-// and send the result back to outputs.
-func (p *Pool) RunWithOutputs(
+// Go receives values from tasks, and calls processFn on each task.
+// Go exits when the first call to processFn returns non-nil error.
+//
+// The context passed to processFn is a local one, created with errgroup
+// on the argument ctx.
+func Go(
 	ctx context.Context,
 	tasks <-chan Task,
-	outputs chan<- interface{},
-	processFn ProcessFnWithOutput,
-	ignoreErr bool,
+	processFn ProcessFn,
 ) error {
-	return Run(
-		ctx,
-		tasks,
-		p.wrapErrgroupWithOutput(processFn, outputs, ignoreErr),
-	)
+	return Run(ctx, tasks, WrapErrGroupFn(processFn))
 }
 
-// Run is a minimal template for concurrently executing each Task
-// until all tasks are done (channel closed).
+// Run is similar to Go in execution, but its argument is a function
+// used to capture context and task into a closure accepted by errgroup.
 //
-// `Process` or `*Pool.Run` can be used in simple cases for better ergonomics.
+// It is exported in case callers want to implement the capture themselves,
+// e.g. for ignoring the local context created in Run.
 func Run(
 	ctx context.Context,
 	tasks <-chan Task,
@@ -73,10 +71,7 @@ func Run(
 	}
 }
 
-func Process(ctx context.Context, tasks <-chan Task, processFn ProcessFn) error {
-	return Run(ctx, tasks, WrapErrGroupFn(processFn))
-}
-
+// WrapErrGroupFn can be used to wrap a ProcessFn into CaptureErrgroupFn
 func WrapErrGroupFn(processFn ProcessFn) CaptureErrgroupFn {
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {

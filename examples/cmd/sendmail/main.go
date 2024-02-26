@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"time"
 
-	"example.com/playground-workers/pkg/worker"
+	"github.com/soyart/hog"
 )
 
 const (
@@ -20,7 +20,7 @@ const (
 func main() {
 	// email with SomeInt == badInt will err
 	numEmails, badInt := 10, 3
-	tasks := make(chan worker.Task)
+	ch := make(chan hog.Task)
 	mails := emailTasks(numEmails)
 
 	ctx := context.Background()
@@ -30,17 +30,17 @@ func main() {
 	go func() {
 		for i := range mails {
 			log.Println("[producer] producing", i)
-			tasks <- mails[i]
+			ch <- mails[i]
 			time.Sleep(200 * time.Millisecond)
 		}
 
 		defer log.Println("[producer] closed chan")
-		defer close(tasks)
+		defer close(ch)
 	}()
 
-	pool := worker.NewPool("email-servers")
+	pool := hog.NewPool("email-servers")
 
-	err := pool.Run(ctx, tasks, processFunc, ignoreErr)
+	err := pool.Run(ctx, ch, processFunc, ignoreErr)
 	if err != nil {
 		log.Println("===== ERROR =====")
 		log.Println("exited with error", err.Error())
@@ -71,8 +71,8 @@ func sendMail(m mail) error {
 	return nil
 }
 
-func processFunc(ctx context.Context, badSomeInt int) func(context.Context, worker.Task) error {
-	return func(_ context.Context, task worker.Task) error {
+func processFunc(ctx context.Context, badSomeInt int) func(context.Context, hog.Task) error {
+	return func(_ context.Context, task hog.Task) error {
 		email, ok := task.Payload.(mail)
 		if !ok {
 			panic("not email: " + reflect.TypeOf(email).String())
@@ -89,11 +89,11 @@ func processFunc(ctx context.Context, badSomeInt int) func(context.Context, work
 	}
 }
 
-func emailTasks(n int) []worker.Task {
-	tasks := make([]worker.Task, n)
+func emailTasks(n int) []hog.Task {
+	jobs := make([]hog.Task, n)
 
-	for i := range tasks {
-		tasks[i] = worker.Task{
+	for i := range jobs {
+		jobs[i] = hog.Task{
 			Id: fmt.Sprintf("sendmail_%d", i),
 			Payload: mail{
 				To:      fmt.Sprintf("receiver_%d", i),
@@ -103,5 +103,5 @@ func emailTasks(n int) []worker.Task {
 		}
 	}
 
-	return tasks
+	return jobs
 }

@@ -1,4 +1,4 @@
-package worker
+package hog
 
 import (
 	"context"
@@ -7,14 +7,19 @@ import (
 	"github.com/pkg/errors"
 )
 
+func NewPool(id string) *Pool {
+	return &Pool{id: id}
+}
+
+// Pool wraps each call to Run, while counting states
+// such as processed tasks and sent results.
+//
+// Other features such as ignoring errors is also provided
+// via its methods.
 type Pool struct {
 	id        string
 	processed uint64
 	sent      uint64
-}
-
-func NewPool(id string) *Pool {
-	return &Pool{id: id}
 }
 
 func (p *Pool) Id() string { return p.id }
@@ -42,6 +47,23 @@ func (p *Pool) Run(
 		ctx,
 		tasks,
 		p.wrapErrgroup(processFn, ignoreErr),
+	)
+}
+
+// RunWithOutputs consumes each task from tasks,
+// maps it to a result using processFunc,
+// and send the result back to outputs.
+func (p *Pool) RunWithOutputs(
+	ctx context.Context,
+	tasks <-chan Task,
+	outputs chan<- interface{},
+	processFn ProcessFnWithOutput,
+	ignoreErr bool,
+) error {
+	return Run(
+		ctx,
+		tasks,
+		p.wrapErrgroupWithOutput(processFn, outputs, ignoreErr),
 	)
 }
 
