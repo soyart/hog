@@ -2,9 +2,7 @@ package worker
 
 import (
 	"context"
-	"sync/atomic"
 
-	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -17,44 +15,6 @@ type (
 type Task struct {
 	Id      string
 	Payload interface{}
-}
-
-type Pool struct {
-	id        string
-	processed uint64
-	sent      uint64
-}
-
-func NewPool(id string) *Pool {
-	return &Pool{id: id}
-}
-
-func (p *Pool) Id() string { return p.id }
-
-// Processed may be subject to data race.
-// Mutexes were omitted for performance tradeoffs
-func (p *Pool) Processed() uint64 { return p.processed }
-
-// ResultsSent may be subject to data race.
-// Mutexes were omitted for performance tradeoffs
-func (p *Pool) ResultsSent() uint64 { return p.sent }
-
-func (p *Pool) incrProcessed() { atomic.AddUint64(&p.processed, 1) }
-func (p *Pool) incrSent()      { atomic.AddUint64(&p.sent, 1) }
-
-// Run consumes values from tasks, calls processFunc on each task,
-// and blocks until all tasks are consumed
-func (p *Pool) Run(
-	ctx context.Context,
-	tasks <-chan Task,
-	processFn ProcessFn,
-	ignoreErr bool,
-) error {
-	return Run(
-		ctx,
-		tasks,
-		p.wrapErrgroup(processFn, ignoreErr),
-	)
 }
 
 // RunWithOutputs consumes each task from tasks,
@@ -77,7 +37,7 @@ func (p *Pool) RunWithOutputs(
 // Run is a minimal template for concurrently executing each Task
 // until all tasks are done (channel closed).
 //
-// `*Pool.Run` can be used in simple cases for better ergonomics.
+// `Process` or `*Pool.Run` can be used in simple cases for better ergonomics.
 func Run(
 	ctx context.Context,
 	tasks <-chan Task,
@@ -113,48 +73,14 @@ func Run(
 	}
 }
 
-func (p *Pool) wrapErrgroup(
-	processFn ProcessFn,
-	ignoreErr bool,
-) CaptureErrgroupFn {
-	return func(ctx context.Context, task Task) func() error {
-		return func() error {
-			if err := processFn(ctx, task); err != nil {
-				if ignoreErr {
-					return nil
-				}
-
-				return errors.Wrapf(err, "task_%s", task.Id)
-			}
-
-			p.incrProcessed()
-			return nil
-		}
-	}
+func Process(ctx context.Context, tasks <-chan Task, processFn ProcessFn) error {
+	return Run(ctx, tasks, WrapErrGroupFn(processFn))
 }
 
-func (p *Pool) wrapErrgroupWithOutput(
-	processFn ProcessFnWithOutput,
-	outputs chan<- interface{},
-	ignoreErr bool,
-) CaptureErrgroupFn {
+func WrapErrGroupFn(processFn ProcessFn) CaptureErrgroupFn {
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
-			result, err := processFn(ctx, task)
-			if err != nil {
-				if ignoreErr {
-					return nil
-				}
-
-				return errors.Wrapf(err, "task_%s", task.Id)
-			}
-
-			p.incrProcessed()
-
-			outputs <- result
-			p.incrSent()
-
-			return nil
+			return processFn(ctx, task)
 		}
 	}
 }
