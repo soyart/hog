@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestRunWithOutputNoErr(t *testing.T) {
+func TestPool_RunWithOutput_NoErr(t *testing.T) {
 	pool := NewPool("fib-test")
 	n := 10
 	tasks := make(chan Task)
