@@ -28,8 +28,14 @@ func NewPool(id string) *Pool {
 	return &Pool{id: id}
 }
 
-func (p *Pool) Id() string          { return p.id }
-func (p *Pool) Processed() uint64   { return p.processed }
+func (p *Pool) Id() string { return p.id }
+
+// Processed may be subject to data race
+// Mutexes were omitted for performance tradeoffs
+func (p *Pool) Processed() uint64 { return p.processed }
+
+// ResultsSent may be subject to data race
+// Mutexes were omitted for performance tradeoffs
 func (p *Pool) ResultsSent() uint64 { return p.sent }
 
 func (p *Pool) incrProcessed() { atomic.AddUint64(&p.processed, 1) }
@@ -46,7 +52,7 @@ func (p *Pool) Run(
 	return p.run(
 		ctx,
 		tasks,
-		p.wrapProcessFn(ctx, processFn, ignoreErr),
+		p.wrapProcessFn(processFn, ignoreErr),
 	)
 }
 
@@ -63,7 +69,7 @@ func (p *Pool) RunWithOutputs(
 	return p.run(
 		ctx,
 		tasks,
-		p.wrapProcessFnWithOutputs(ctx, processFn, outputs, ignoreErr),
+		p.wrapProcessFnWithOutputs(processFn, outputs, ignoreErr),
 	)
 }
 
@@ -72,7 +78,7 @@ func (p *Pool) RunWithOutputs(
 func (p *Pool) run(
 	ctx context.Context,
 	tasks <-chan Task,
-	f func(Task) func() error,
+	f func(context.Context, Task) func() error,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
 	doneSignal := make(chan struct{})
@@ -96,17 +102,16 @@ func (p *Pool) run(
 				continue
 			}
 
-			tasksGroup.Go(f(task))
+			tasksGroup.Go(f(tasksCtx, task))
 		}
 	}
 }
 
 func (p *Pool) wrapProcessFn(
-	ctx context.Context,
 	processFn ProcessFn,
 	ignoreErr bool,
-) func(Task) func() error {
-	return func(task Task) func() error {
+) func(context.Context, Task) func() error {
+	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			err := processFn(ctx, task)
 			if err != nil {
@@ -124,12 +129,11 @@ func (p *Pool) wrapProcessFn(
 }
 
 func (p *Pool) wrapProcessFnWithOutputs(
-	ctx context.Context,
 	processFn ProcessFnWithOutput,
 	outputs chan<- interface{},
 	ignoreErr bool,
-) func(Task) func() error {
-	return func(task Task) func() error {
+) func(context.Context, Task) func() error {
+	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			result, err := processFn(ctx, task)
 			if err != nil {
