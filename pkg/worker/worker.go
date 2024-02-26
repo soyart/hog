@@ -11,6 +11,7 @@ import (
 type (
 	ProcessFn           = func(context.Context, Task) error
 	ProcessFnWithOutput = func(context.Context, Task) (interface{}, error)
+	CaptureErrgroupFn   = func(context.Context, Task) func() error // Used internally to capture context and task to a closure for errgroup
 )
 
 type Task struct {
@@ -30,11 +31,11 @@ func NewPool(id string) *Pool {
 
 func (p *Pool) Id() string { return p.id }
 
-// Processed may be subject to data race
+// Processed may be subject to data race.
 // Mutexes were omitted for performance tradeoffs
 func (p *Pool) Processed() uint64 { return p.processed }
 
-// ResultsSent may be subject to data race
+// ResultsSent may be subject to data race.
 // Mutexes were omitted for performance tradeoffs
 func (p *Pool) ResultsSent() uint64 { return p.sent }
 
@@ -49,10 +50,10 @@ func (p *Pool) Run(
 	processFn ProcessFn,
 	ignoreErr bool,
 ) error {
-	return p.run(
+	return Run(
 		ctx,
 		tasks,
-		p.wrapProcessFn(processFn, ignoreErr),
+		p.wrapErrgroup(processFn, ignoreErr),
 	)
 }
 
@@ -66,27 +67,30 @@ func (p *Pool) RunWithOutputs(
 	processFn ProcessFnWithOutput,
 	ignoreErr bool,
 ) error {
-	return p.run(
+	return Run(
 		ctx,
 		tasks,
-		p.wrapProcessFnWithOutputs(processFn, outputs, ignoreErr),
+		p.wrapErrgroupWithOutput(processFn, outputs, ignoreErr),
 	)
 }
 
-// run is a template for concurrently executing each Task from task with f
-// until all tasks are done (channel closed)
-func (p *Pool) run(
+// Run is a minimal template for concurrently executing each Task
+// until all tasks are done (channel closed).
+//
+// `*Pool.Run` can be used in simple cases for better ergonomics.
+func Run(
 	ctx context.Context,
 	tasks <-chan Task,
-	f func(context.Context, Task) func() error,
+	capture CaptureErrgroupFn,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
-	doneSignal := make(chan struct{})
+	allDone := make(chan struct{})
 
 	for {
 		select {
-		// All tasks ok
-		case <-doneSignal:
+		// All launched tasks are doing ok so far,
+		// and channel tasks has been closed
+		case <-allDone:
 			return tasksGroup.Wait()
 
 		// Some task failed (i.e. context canceled by errGroup)
@@ -96,25 +100,26 @@ func (p *Pool) run(
 		case task, open := <-tasks:
 			if !open {
 				go func() {
-					doneSignal <- struct{}{}
+					allDone <- struct{}{}
 				}()
 
 				continue
 			}
 
-			tasksGroup.Go(f(tasksCtx, task))
+			// We use errgroup's context here in capture
+			// to be able to cancel all goroutines on first non-nil err
+			tasksGroup.Go(capture(tasksCtx, task))
 		}
 	}
 }
 
-func (p *Pool) wrapProcessFn(
+func (p *Pool) wrapErrgroup(
 	processFn ProcessFn,
 	ignoreErr bool,
-) func(context.Context, Task) func() error {
+) CaptureErrgroupFn {
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
-			err := processFn(ctx, task)
-			if err != nil {
+			if err := processFn(ctx, task); err != nil {
 				if ignoreErr {
 					return nil
 				}
@@ -128,11 +133,11 @@ func (p *Pool) wrapProcessFn(
 	}
 }
 
-func (p *Pool) wrapProcessFnWithOutputs(
+func (p *Pool) wrapErrgroupWithOutput(
 	processFn ProcessFnWithOutput,
 	outputs chan<- interface{},
 	ignoreErr bool,
-) func(context.Context, Task) func() error {
+) CaptureErrgroupFn {
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			result, err := processFn(ctx, task)
