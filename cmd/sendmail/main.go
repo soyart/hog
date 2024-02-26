@@ -40,7 +40,7 @@ func main() {
 
 	pool := worker.NewPool("email-servers")
 
-	err := pool.Run(ctx, tasks, processFunc, exitOnErr)
+	err := pool.Run(ctx, tasks, processFunc, ignoreErr)
 	if err != nil {
 		log.Println("===== ERROR =====")
 		log.Println("exited with error", err.Error())
