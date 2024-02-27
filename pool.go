@@ -47,6 +47,7 @@ func (p *Pool) Run(
 		ctx,
 		tasks,
 		p.adapter(processFn, conf),
+		conf,
 	)
 }
 
@@ -64,6 +65,7 @@ func (p *Pool) RunWithOutputs(
 		ctx,
 		tasks,
 		p.adapterWithOutput(processFn, outputs, conf),
+		conf,
 	)
 }
 

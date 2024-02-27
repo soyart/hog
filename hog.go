@@ -26,9 +26,16 @@ type Task struct {
 	Payload interface{}
 }
 
+type ConfigErrgroup struct {
+	Limit           bool
+	LimitGoroutines int
+}
+
 type Config struct {
-	Flag       FlagHandleErr
-	IgnoreErrs []error
+	Errgroup ConfigErrgroup
+
+	FlagHandleErr FlagHandleErr // Error handling flag
+	IgnoreErrs    []error       // Errors to ignore - if set, flag will be FlagHandleErrIgnoreSome
 }
 
 // Go receives values from tasks, and calls processFn on each task.
@@ -40,17 +47,9 @@ func Go(
 	ctx context.Context,
 	tasks <-chan Task,
 	processFn ProcessFn,
-) error {
-	return Hog(ctx, tasks, adapterFn(processFn, Config{}))
-}
-
-func GoConfig(
-	ctx context.Context,
-	tasks <-chan Task,
-	processFn ProcessFn,
 	conf Config,
 ) error {
-	return Hog(ctx, tasks, adapterFn(processFn, conf))
+	return Hog(ctx, tasks, adapterFn(processFn, conf), conf)
 }
 
 // Hog is similar to Go in execution, but its argument is a function
@@ -62,8 +61,13 @@ func Hog(
 	ctx context.Context,
 	tasks <-chan Task,
 	capture AdapterErrgroupFn,
+	conf Config,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
+	if conf.Errgroup.Limit {
+		tasksGroup.SetLimit(conf.Errgroup.LimitGoroutines)
+	}
+
 	allDone := make(chan struct{})
 
 	for {
@@ -94,14 +98,8 @@ func Hog(
 }
 
 func handleErrFn(conf Config) func(error) error {
-	switch conf.Flag {
-	case FlagHandleErrDefault:
-		return func(err error) error { return err }
-
-	case FlagHandleErrIgnore:
-		return func(_ error) error { return nil }
-
-	case FlagHandleErrIgnoreSome:
+	switch {
+	case len(conf.IgnoreErrs) > 0 || conf.FlagHandleErr == FlagHandleErrIgnoreSome:
 		return func(err error) error {
 			for i := range conf.IgnoreErrs {
 				if errors.Is(err, conf.IgnoreErrs[i]) {
@@ -111,6 +109,12 @@ func handleErrFn(conf Config) func(error) error {
 
 			return err
 		}
+
+	case conf.FlagHandleErr == FlagHandleErrDefault:
+		return func(err error) error { return err }
+
+	case conf.FlagHandleErr == FlagHandleErrIgnore:
+		return func(_ error) error { return nil }
 
 	default:
 		return nil
@@ -122,8 +126,7 @@ func adapterFn(processFn ProcessFn, conf Config) AdapterErrgroupFn {
 
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
-			err := processFn(ctx, task)
-			return handleErr(err)
+			return handleErr(processFn(ctx, task))
 		}
 	}
 }

@@ -60,7 +60,7 @@ func TestGo_Job_NoErr(t *testing.T) {
 		}
 	}()
 
-	err := hog.Go(context.Background(), ch, processFn)
+	err := hog.Go(context.Background(), ch, processFn, hog.Config{})
 	if err != nil {
 		t.Error("unexpected error", err)
 	}

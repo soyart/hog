@@ -44,5 +44,5 @@ func main() {
 		}
 	}()
 
-	hog.Go(context.Background(), ch, processJob)
+	hog.Go(context.Background(), ch, processJob, hog.Config{})
 }

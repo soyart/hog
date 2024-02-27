@@ -36,7 +36,7 @@ func main() {
 	pool := hog.NewPool("email-servers")
 
 	err := pool.Run(ctx, ch, processFunc, hog.Config{
-		Flag: hog.FlagHandleErrIgnore,
+		FlagHandleErr: hog.FlagHandleErrIgnore,
 	})
 	if err != nil {
 		log.Println("===== ERROR =====")
