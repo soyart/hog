@@ -41,12 +41,12 @@ func (p *Pool) Run(
 	ctx context.Context,
 	tasks <-chan Task,
 	processFn ProcessFn,
-	ignoreErr bool,
+	conf Config,
 ) error {
-	return Run(
+	return Hog(
 		ctx,
 		tasks,
-		p.wrapErrgroup(processFn, ignoreErr),
+		p.adapter(processFn, conf),
 	)
 }
 
@@ -58,27 +58,25 @@ func (p *Pool) RunWithOutputs(
 	tasks <-chan Task,
 	outputs chan<- interface{},
 	processFn ProcessFnWithOutput,
-	ignoreErr bool,
+	conf Config,
 ) error {
-	return Run(
+	return Hog(
 		ctx,
 		tasks,
-		p.wrapErrgroupWithOutput(processFn, outputs, ignoreErr),
+		p.adapterWithOutput(processFn, outputs, conf),
 	)
 }
 
-func (p *Pool) wrapErrgroup(
+func (p *Pool) adapter(
 	processFn ProcessFn,
-	ignoreErr bool,
+	conf Config,
 ) AdapterErrgroupFn {
+	handleErr := handleErrFn(conf)
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
-			if err := processFn(ctx, task); err != nil {
-				if ignoreErr {
-					return nil
-				}
-
-				return errors.Wrapf(err, "task_%s", task.Id)
+			err := processFn(ctx, task)
+			if err != nil {
+				return errors.Wrapf(handleErr(err), "task_%s", task.Id)
 			}
 
 			p.incrProcessed()
@@ -87,20 +85,17 @@ func (p *Pool) wrapErrgroup(
 	}
 }
 
-func (p *Pool) wrapErrgroupWithOutput(
+func (p *Pool) adapterWithOutput(
 	processFn ProcessFnWithOutput,
 	outputs chan<- interface{},
-	ignoreErr bool,
+	conf Config,
 ) AdapterErrgroupFn {
+	handleErr := handleErrFn(conf)
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			result, err := processFn(ctx, task)
 			if err != nil {
-				if ignoreErr {
-					return nil
-				}
-
-				return errors.Wrapf(err, "task_%s", task.Id)
+				return errors.Wrapf(handleErr(err), "task_%s", task.Id)
 			}
 
 			p.incrProcessed()

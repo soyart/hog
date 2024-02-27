@@ -12,11 +12,6 @@ import (
 	"github.com/soyart/hog"
 )
 
-const (
-	ignoreErr = true
-	exitOnErr = !ignoreErr
-)
-
 func main() {
 	// email with SomeInt == badInt will err
 	numEmails, badInt := 10, 3
@@ -40,7 +35,9 @@ func main() {
 
 	pool := hog.NewPool("email-servers")
 
-	err := pool.Run(ctx, ch, processFunc, ignoreErr)
+	err := pool.Run(ctx, ch, processFunc, hog.Config{
+		Flag: hog.FlagHandleErrIgnore,
+	})
 	if err != nil {
 		log.Println("===== ERROR =====")
 		log.Println("exited with error", err.Error())

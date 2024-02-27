@@ -9,11 +9,6 @@ import (
 	"github.com/soyart/hog"
 )
 
-const (
-	ignoreErr = true
-	exitOnErr = !ignoreErr
-)
-
 func main() {
 	// n = 10 will create 10 tasks for finding nth fibo value (0-9th fibo)
 	n := 10
@@ -25,15 +20,15 @@ func main() {
 
 	// Task producer goroutine
 	go func() {
+		defer log.Println("[producer] closed chan")
+		defer close(tasks)
+
 		for i := range fibs {
 			log.Println("[producer] producing", i)
 			tasks <- fibs[i]
 
 			// time.Sleep(700 * time.Millisecond)
 		}
-
-		defer log.Println("[producer] closed chan")
-		defer close(tasks)
 	}()
 
 	pool := hog.NewPool("fib-pool")
@@ -46,7 +41,7 @@ func main() {
 		}
 	}()
 
-	err := pool.RunWithOutputs(ctx, tasks, outputs, processFib, exitOnErr)
+	err := pool.RunWithOutputs(ctx, tasks, outputs, processFib, hog.Config{})
 	if err != nil {
 		log.Println("===== ERROR =====")
 		log.Println("exited with error", err.Error())

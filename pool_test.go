@@ -19,29 +19,29 @@ func TestPool_RunWithOutput_NoErr(t *testing.T) {
 
 	// Task producer goroutine
 	go func() {
+		defer log.Println("[producer] closed chan")
+		defer close(tasks)
+
 		fibs := fibTasks(n)
 
 		for i := range fibs {
 			log.Println("[producer] producing", i)
 			tasks <- fibs[i]
 		}
-
-		defer log.Println("[producer] closed chan")
-		defer close(tasks)
 	}()
 
 	// Worker goroutine
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
+		defer t.Log("RunWithOutputs done")
+		defer close(outputs)
 		defer wg.Done()
-		err := pool.RunWithOutputs(context.Background(), tasks, outputs, processFib, false)
+
+		err := pool.RunWithOutputs(context.Background(), tasks, outputs, processFib, hog.Config{})
 		if err != nil {
 			t.Errorf("unexpected error from RunWithOutputs: %v", err)
 		}
-
-		close(outputs)
-		t.Log("RunWithOutputs done")
 	}()
 
 	// Result consumer goroutine
