@@ -2,20 +2,33 @@ package hog
 
 import (
 	"context"
+	"errors"
 
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	FlagDefaultErr Flag = iota // Fails on first error
+	FlagIgnoreErr              // Never fails on any errors
+	FlagIgnoreErrs             // Never fails on some errors
+)
+
 type (
+	Flag                = uint8
 	ProcessFn           = func(context.Context, Task) error
 	ProcessFnWithOutput = func(context.Context, Task) (interface{}, error)
-	CaptureErrgroupFn   = func(context.Context, Task) func() error // Used internally to capture context and task to a closure for errgroup
+	AdapterErrgroupFn   = func(context.Context, Task) func() error // Used internally to capture context and task to a closure for errgroup
 )
 
 // Task represents hog unit of task.
 type Task struct {
 	Id      string
 	Payload interface{}
+}
+
+type Config struct {
+	Flag       Flag
+	IgnoreErrs []error
 }
 
 // Go receives values from tasks, and calls processFn on each task.
@@ -28,7 +41,16 @@ func Go(
 	tasks <-chan Task,
 	processFn ProcessFn,
 ) error {
-	return Run(ctx, tasks, WrapErrGroupFn(processFn))
+	return Run(ctx, tasks, adapterFn(processFn, Config{}))
+}
+
+func GoConfig(
+	ctx context.Context,
+	tasks <-chan Task,
+	processFn ProcessFn,
+	conf Config,
+) error {
+	return Run(ctx, tasks, adapterFn(processFn, conf))
 }
 
 // Run is similar to Go in execution, but its argument is a function
@@ -39,7 +61,7 @@ func Go(
 func Run(
 	ctx context.Context,
 	tasks <-chan Task,
-	capture CaptureErrgroupFn,
+	capture AdapterErrgroupFn,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
 	allDone := make(chan struct{})
@@ -71,11 +93,37 @@ func Run(
 	}
 }
 
-// WrapErrGroupFn can be used to wrap a ProcessFn into CaptureErrgroupFn
-func WrapErrGroupFn(processFn ProcessFn) CaptureErrgroupFn {
+func handleErr(conf Config) func(error) error {
+	switch conf.Flag {
+	case FlagDefaultErr:
+		return func(err error) error { return err }
+
+	case FlagIgnoreErr:
+		return func(_ error) error { return nil }
+
+	case FlagIgnoreErrs:
+		return func(err error) error {
+			for i := range conf.IgnoreErrs {
+				if errors.Is(err, conf.IgnoreErrs[i]) {
+					return nil
+				}
+			}
+
+			return err
+		}
+
+	default:
+		return nil
+	}
+}
+
+func adapterFn(processFn ProcessFn, conf Config) AdapterErrgroupFn {
+	handleErr := handleErr(conf)
+
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
-			return processFn(ctx, task)
+			err := processFn(ctx, task)
+			return handleErr(err)
 		}
 	}
 }

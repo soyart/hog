@@ -1,4 +1,4 @@
-package hog
+package hog_test
 
 import (
 	"context"
@@ -7,12 +7,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/soyart/hog"
 )
 
 func TestPool_RunWithOutput_NoErr(t *testing.T) {
-	pool := NewPool("fib-test")
+	pool := hog.NewPool("fib-test")
 	n := 10
-	tasks := make(chan Task)
+	tasks := make(chan hog.Task)
 	outputs := make(chan interface{})
 
 	// Task producer goroutine
@@ -88,7 +90,7 @@ func fib(n int) int {
 	}
 }
 
-func processFib(ctx context.Context, task Task) (interface{}, error) {
+func processFib(ctx context.Context, task hog.Task) (interface{}, error) {
 	time.Sleep(100 * time.Millisecond)
 	n, ok := task.Payload.(int)
 	if !ok {
@@ -98,10 +100,10 @@ func processFib(ctx context.Context, task Task) (interface{}, error) {
 	return fib(n), nil
 }
 
-func fibTasks(n int) []Task {
-	tasks := make([]Task, n)
+func fibTasks(n int) []hog.Task {
+	tasks := make([]hog.Task, n)
 	for i := int(0); i < n; i++ {
-		tasks[i] = Task{
+		tasks[i] = hog.Task{
 			Id:      fmt.Sprintf("fib_%d", n),
 			Payload: i,
 		}

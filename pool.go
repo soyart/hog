@@ -70,7 +70,7 @@ func (p *Pool) RunWithOutputs(
 func (p *Pool) wrapErrgroup(
 	processFn ProcessFn,
 	ignoreErr bool,
-) CaptureErrgroupFn {
+) AdapterErrgroupFn {
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			if err := processFn(ctx, task); err != nil {
@@ -91,7 +91,7 @@ func (p *Pool) wrapErrgroupWithOutput(
 	processFn ProcessFnWithOutput,
 	outputs chan<- interface{},
 	ignoreErr bool,
-) CaptureErrgroupFn {
+) AdapterErrgroupFn {
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			result, err := processFn(ctx, task)
