@@ -69,6 +69,25 @@ func (p *Pool) RunWithOutputs(
 	)
 }
 
+// Stream consumes each task from tasks,
+// maps it to a result using processFunc,
+// and send the result back to outputs.
+func (p *Pool) Stream(
+	ctx context.Context,
+	tasks <-chan Task,
+	outputs chan<- interface{},
+	errs chan<- error,
+	processFn ProcessFnWithOutput,
+	conf Config,
+) error {
+	return Hog(
+		ctx,
+		tasks,
+		p.adapterStream(processFn, outputs, errs, conf),
+		conf,
+	)
+}
+
 func (p *Pool) adapter(
 	processFn ProcessFn,
 	conf Config,
@@ -102,6 +121,31 @@ func (p *Pool) adapterWithOutput(
 
 			p.incrProcessed()
 
+			outputs <- result
+			p.incrSent()
+
+			return nil
+		}
+	}
+}
+
+func (p *Pool) adapterStream(
+	processFn ProcessFnWithOutput,
+	outputs chan<- interface{},
+	errs chan<- error,
+	conf Config,
+) AdapterErrgroupFn {
+	handleErr := handleErrFn(conf)
+	return func(ctx context.Context, task Task) func() error {
+		return func() error {
+			result, err := processFn(ctx, task)
+			if err != nil {
+				errs <- errors.Wrapf(handleErr(err), "task_%s", task.Id)
+
+				return nil
+			}
+
+			p.incrProcessed()
 			outputs <- result
 			p.incrSent()
 

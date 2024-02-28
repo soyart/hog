@@ -2,14 +2,110 @@ package hog_test
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/soyart/hog"
+	"github.com/soyart/hog/examples/pkg/fib"
 )
+
+func TestPool_RunWithOutputs_WithErr(t *testing.T) {
+	type testCaseFibIgnoreErr struct {
+		config        hog.Config
+		tasksFib      []hog.Task
+		processFn     hog.ProcessFnWithOutput
+		expectedError bool
+	}
+
+	tests := []testCaseFibIgnoreErr{
+		{
+			tasksFib:      fib.IntTasks(10),
+			processFn:     fib.ProcessFibErrIfEq(3),
+			expectedError: true,
+		},
+		{
+			config: hog.Config{
+				FlagHandleErr: hog.FlagHandleErrIgnore,
+			},
+			tasksFib:      fib.IntTasks(10),
+			processFn:     fib.ProcessFibErrIfEq(3),
+			expectedError: false,
+		},
+		{
+			config: hog.Config{
+				FlagHandleErr: hog.FlagHandleErrIgnore,
+				IgnoreErrs:    []error{errors.New("foo")}, // this overwrites FlagHandleErr above
+			},
+			tasksFib:      fib.IntTasks(10),
+			processFn:     fib.ProcessFibErrIfEq(3),
+			expectedError: true,
+		},
+		{
+			config: hog.Config{
+				IgnoreErrs: []error{errors.New("fib error")}, // not fib.Err..
+			},
+			tasksFib:      fib.IntTasks(10),
+			processFn:     fib.ProcessFibErrIfEq(3),
+			expectedError: true,
+		},
+		{
+			config: hog.Config{
+				IgnoreErrs: []error{fib.ErrFib},
+			},
+			tasksFib:      fib.IntTasks(10),
+			processFn:     fib.ProcessFibErrIfEq(3),
+			expectedError: false,
+		},
+	}
+
+	for i := range tests {
+		testCase := &tests[i]
+
+		tasks := make(chan hog.Task)
+		outputs := make(chan interface{})
+		ctx := context.Background()
+
+		// Task producer goroutine
+		go func() {
+			defer log.Println("[producer] closed chan")
+			defer close(tasks)
+
+			for i := range testCase.tasksFib {
+				log.Println("[producer] producing", i)
+				tasks <- testCase.tasksFib[i]
+
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+
+		pool := hog.NewPool("fib-pool")
+
+		// Result consumer goroutine
+		go func() {
+			for result := range outputs {
+				log.Println("[consumer] result", result)
+				log.Println("[consumer] received", pool.ResultsSent())
+
+				time.Sleep(120 * time.Millisecond)
+			}
+		}()
+
+		err := pool.RunWithOutputs(ctx, tasks, outputs, testCase.processFn, testCase.config)
+
+		if err != nil && !testCase.expectedError {
+			t.Errorf("testCase: %+v", testCase)
+			t.Fatalf("Unexpected error")
+		}
+
+		if err == nil && testCase.expectedError {
+			t.Errorf("testCase: %+v", testCase)
+			t.Fatalf("Unexpected nil error")
+		}
+	}
+}
 
 func TestPool_RunWithOutput_NoErr(t *testing.T) {
 	pool := hog.NewPool("fib-test")
@@ -22,7 +118,7 @@ func TestPool_RunWithOutput_NoErr(t *testing.T) {
 		defer log.Println("[producer] closed chan")
 		defer close(tasks)
 
-		fibs := fibTasks(n)
+		fibs := fib.IntTasks(n)
 
 		for i := range fibs {
 			log.Println("[producer] producing", i)
@@ -38,7 +134,8 @@ func TestPool_RunWithOutput_NoErr(t *testing.T) {
 		defer close(outputs)
 		defer wg.Done()
 
-		err := pool.RunWithOutputs(context.Background(), tasks, outputs, processFib, hog.Config{})
+		processFn := fib.ProcessFib
+		err := pool.RunWithOutputs(context.Background(), tasks, outputs, processFn, hog.Config{})
 		if err != nil {
 			t.Errorf("unexpected error from RunWithOutputs: %v", err)
 		}
@@ -78,44 +175,10 @@ outer:
 	}
 }
 
-func fib(n int) int {
-	switch {
-	case n <= 0:
-		return 0
-	case n == 1:
-		return 1
-
-	default:
-		return fib(n-1) + fib(n-2)
-	}
-}
-
-func processFib(ctx context.Context, task hog.Task) (interface{}, error) {
-	time.Sleep(100 * time.Millisecond)
-	n, ok := task.Payload.(int)
-	if !ok {
-		panic(fmt.Sprintf("not int"))
-	}
-
-	return fib(n), nil
-}
-
-func fibTasks(n int) []hog.Task {
-	tasks := make([]hog.Task, n)
-	for i := int(0); i < n; i++ {
-		tasks[i] = hog.Task{
-			Id:      fmt.Sprintf("fib_%d", n),
-			Payload: i,
-		}
-	}
-
-	return tasks
-}
-
 func expectedFibs(n int) []int {
 	expecteds := make([]int, n)
 	for i := int(0); i < n; i++ {
-		expecteds[i] = fib(i)
+		expecteds[i] = fib.Fib(i)
 	}
 
 	return expecteds

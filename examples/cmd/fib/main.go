@@ -2,17 +2,18 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/soyart/hog"
+	"github.com/soyart/hog/examples/pkg/fib"
 )
 
 func main() {
 	// n = 10 will create 10 tasks for finding nth fibo value (0-9th fibo)
 	n := 10
-	fibs := fibTasks(n)
+	fibs := fib.IntTasks(n)
 
 	tasks := make(chan hog.Task)
 	outputs := make(chan interface{})
@@ -27,7 +28,7 @@ func main() {
 			log.Println("[producer] producing", i)
 			tasks <- fibs[i]
 
-			// time.Sleep(700 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
@@ -41,7 +42,13 @@ func main() {
 		}
 	}()
 
-	err := pool.RunWithOutputs(ctx, tasks, outputs, processFib, hog.Config{})
+	// processFn := fib.ProcessFib
+	processFn := fib.ProcessFibErrIfEq(3, 6) // errors on 3rd and 6th jobs
+
+	err := pool.RunWithOutputs(ctx, tasks, outputs, processFn, hog.Config{
+		// IgnoreErrs: []error{fib.ErrFib},
+		// FlagHandleErr: hog.FlagHandleErrIgnore,
+	})
 	if err != nil {
 		log.Println("===== ERROR =====")
 		log.Println("exited with error", err.Error())
@@ -52,40 +59,4 @@ func main() {
 
 	log.Println("===== DONE =====")
 	log.Println("tasks completed", pool.Processed())
-}
-
-func fib(n int) int {
-	switch {
-	case n <= 0:
-		return 0
-	case n == 1:
-		return 1
-
-	default:
-		return fib(n-1) + fib(n-2)
-	}
-}
-
-func processFib(ctx context.Context, task hog.Task) (interface{}, error) {
-	n, ok := task.Payload.(int)
-	if !ok {
-		panic(fmt.Sprintf("not int"))
-	}
-
-	// Fake expensive runtime here, since func fib is recursive
-	// time.Sleep(100 * time.Millisecond)
-
-	return fib(n), nil
-}
-
-func fibTasks(n int) []hog.Task {
-	tasks := make([]hog.Task, n)
-	for i := 0; i < n; i++ {
-		tasks[i] = hog.Task{
-			Id:      fmt.Sprintf("fib_%d", n),
-			Payload: i,
-		}
-	}
-
-	return tasks
 }

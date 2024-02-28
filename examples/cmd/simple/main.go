@@ -2,37 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/soyart/hog"
+	"github.com/soyart/hog/examples/pkg/job"
 )
 
-type job int
-
-func processJob(ctx context.Context, task hog.Task) error {
-	j, ok := task.Payload.(job)
-	if !ok {
-		panic("not job")
-	}
-
-	fmt.Println("processing:", j)
-	time.Sleep(200 * time.Millisecond)
-	fmt.Println("done:", j)
-
-	return nil
-}
-
-func someTasks() []hog.Task {
-	return []hog.Task{
-		{Id: "1", Payload: job(1)},
-		{Id: "2", Payload: job(2)},
-		{Id: "3", Payload: job(3)},
-	}
-}
-
 func main() {
-	var tasks []hog.Task = someTasks()
+	var tasks []hog.Task = job.SomeTasks()
 	ch := make(chan hog.Task)
 
 	// Concurrently but sequentially publishes task
@@ -44,5 +20,5 @@ func main() {
 		}
 	}()
 
-	hog.Go(context.Background(), ch, processJob, hog.Config{})
+	hog.Go(context.Background(), ch, job.ProcessJob, hog.Config{})
 }

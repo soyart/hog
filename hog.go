@@ -2,8 +2,8 @@ package hog
 
 import (
 	"context"
-	"errors"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -14,10 +14,10 @@ const (
 )
 
 type (
-	FlagHandleErr       = uint8
-	ProcessFn           = func(context.Context, Task) error
-	ProcessFnWithOutput = func(context.Context, Task) (interface{}, error)
-	AdapterErrgroupFn   = func(context.Context, Task) func() error // Used internally to capture context and task to a closure for errgroup
+	FlagHandleErr       uint8
+	ProcessFn           func(context.Context, Task) error
+	ProcessFnWithOutput func(context.Context, Task) (interface{}, error)
+	AdapterErrgroupFn   func(context.Context, Task) func() error // AdapterFn captures errgroup context and task, and returns a closure used in errgroup.Group.Go
 )
 
 // Task represents hog unit of task.
@@ -38,29 +38,14 @@ type Config struct {
 	IgnoreErrs    []error       // Errors to ignore - if set, flag will be FlagHandleErrIgnoreSome
 }
 
-// Go receives values from tasks, and calls processFn on each task.
-// Go exits when the first call to processFn returns non-nil error.
-//
-// The context passed to processFn is a local one, created with errgroup
-// on the argument ctx.
-func Go(
-	ctx context.Context,
-	tasks <-chan Task,
-	processFn ProcessFn,
-	conf Config,
-) error {
-	return Hog(ctx, tasks, adapterFn(processFn, conf), conf)
-}
-
-// Hog is similar to Go in execution, but its argument is a function
-// used to capture context and task into a closure accepted by errgroup.
-//
-// It is exported in case callers want to implement the capture themselves,
-// e.g. for ignoring the local context created in Hog.
+// Hog is the base for all hog functions.
+// It accept AdapterFn for maximum flexibility.
+// If you have a ProcessFn or ProcessFnWithOutput,
+// try using adapters or use Go or GoWithOutputs instead.
 func Hog(
 	ctx context.Context,
 	tasks <-chan Task,
-	capture AdapterErrgroupFn,
+	adapter AdapterErrgroupFn,
 	conf Config,
 ) error {
 	tasksGroup, tasksCtx := errgroup.WithContext(ctx)
@@ -92,9 +77,28 @@ func Hog(
 
 			// We use errgroup's context here in capture
 			// to be able to cancel all goroutines on first non-nil err
-			tasksGroup.Go(capture(tasksCtx, task))
+			tasksGroup.Go(adapter(tasksCtx, task))
 		}
 	}
+}
+
+func Go(
+	ctx context.Context,
+	tasks <-chan Task,
+	processFn ProcessFn,
+	conf Config,
+) error {
+	return Hog(ctx, tasks, AdapterFn(processFn, conf), conf)
+}
+
+func GoWithOutputs(
+	ctx context.Context,
+	tasks <-chan Task,
+	outputs chan<- interface{},
+	processFn ProcessFnWithOutput,
+	conf Config,
+) error {
+	return Hog(ctx, tasks, AdapterFnWithOutput(processFn, outputs, conf), conf)
 }
 
 func handleErrFn(conf Config) func(error) error {
@@ -121,12 +125,31 @@ func handleErrFn(conf Config) func(error) error {
 	}
 }
 
-func adapterFn(processFn ProcessFn, conf Config) AdapterErrgroupFn {
+func AdapterFn(processFn ProcessFn, conf Config) AdapterErrgroupFn {
 	handleErr := handleErrFn(conf)
-
 	return func(ctx context.Context, task Task) func() error {
 		return func() error {
 			return handleErr(processFn(ctx, task))
+		}
+	}
+}
+
+func AdapterFnWithOutput(
+	processFn ProcessFnWithOutput,
+	outputs chan<- interface{},
+	conf Config,
+) AdapterErrgroupFn {
+	handleErr := handleErrFn(conf)
+	return func(ctx context.Context, task Task) func() error {
+		return func() error {
+			result, err := processFn(ctx, task)
+			if err != nil {
+				return errors.Wrapf(handleErr(err), "task_%s", task.Id)
+			}
+
+			outputs <- result
+
+			return nil
 		}
 	}
 }
